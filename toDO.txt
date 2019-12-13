@@ -1,0 +1,6 @@
+feature selection
+
+	- find correlation of feature pairs
+	- find correlation of each feature with price
+	- from highly correlated feature pairs, remove 1 feature which has lower correlation with price
+	
