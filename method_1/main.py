@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from scipy.stats import norm
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from scipy import stats
 import warnings
 import time
@@ -26,12 +26,12 @@ def get_train_data():
     y = y.to_numpy()
 
     # scale to [0,1] range
-    # scaler = MinMaxScaler(feature_range=(0, 1), copy=False)
-    # scaler.fit_transform(x1)
-    
+    # x1 = MinMaxScaler(feature_range=(0, 1), copy=False).fit_transform(x1)
+        
     # mean 0 variance 1
-    # scaler2 = StandardScaler(copy=False).fit(x1)
-    # scaler2.transform(x1)
+    # x1 = StandardScaler(copy=False).fit_transform(x1)
+    
+    # x1 = RobustScaler().fit_transform(x1)
     
     # x1 = np.log(x1 + 1)
 
@@ -126,15 +126,20 @@ def predict():
     x1, x2, y = get_train_data()
     x1_test, x2_test = get_test_data()
 
+    t = time.time()
     y_1 = predict_with_numerical(x1, y, x1)
     
-    print(rmsle(y, y_1))
-
+    
     bin_size = 1000
-    # m = get_bayes_model(x2, y, bin_size)
-    # y_2 = predict_with_categorical(m, x2_test, bin_size)
+    m = get_bayes_model(x2, y, bin_size)
+    y_2 = predict_with_categorical(m, x2, bin_size)
+
+    print(rmsle(y, y_1))
+    print(rmsle(y, y_2))
+    print(rmsle(y, y_1 * 0.8 + y_2 * 0.2))
 
     # get_submission_file(y_1)
+    print(str(time.time() - t) + ' seconds passed')
     return y_1
     # return (y_1 + y_2) / 2
 
@@ -151,6 +156,6 @@ def rmsle(y, y_):
 
 
 y = predict()
-print(y)
+
 # print(y_)
 # print(np.unique(y_))
