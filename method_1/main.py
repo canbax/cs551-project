@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from scipy.stats import norm
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from scipy import stats
 import warnings
 import time
@@ -16,14 +16,24 @@ def get_train_data():
 
     y = df['SalePrice']
     df.drop(['SalePrice', 'Id'], axis=1, inplace=True)
-    # train1 is numerical data types
+    # x1 is numerical data types
     x1 = df.select_dtypes(exclude=['object'])
-    # train2 is categorical data types
+    # x2 is categorical data types
     x2 = df.select_dtypes(['object'])
 
     x1 = x1.to_numpy()
     x2 = x2.to_numpy()
     y = y.to_numpy()
+
+    # scale to [0,1] range
+    # scaler = MinMaxScaler(feature_range=(0, 1), copy=False)
+    # scaler.fit_transform(x1)
+    
+    # mean 0 variance 1
+    # scaler2 = StandardScaler(copy=False).fit(x1)
+    # scaler2.transform(x1)
+    
+    # x1 = np.log(x1 + 1)
 
     return x1, x2, y
 
@@ -38,6 +48,9 @@ def get_test_data():
     # train2 is categorical data types
     x2 = df.select_dtypes(['object'])
 
+    scaler = MinMaxScaler(feature_range=(0, 1), copy=False)
+    scaler.fit_transform(x1)
+    
     return x1.to_numpy(), x2.to_numpy()
 
 
@@ -99,10 +112,11 @@ def replace_nan2mean(x, col_mean=[]):
     x[idxs] = np.take(col_mean, idxs[1])
     return x
 
+
 def predict_with_numerical(x, y, x_test):
     x = replace_nan2mean(x)
-    x_test = replace_nan2mean(x_test, np.mean(x, axis=1))
-    clf = SVR(C=1.0, epsilon=0.2, gamma='auto')
+    x_test = replace_nan2mean(x_test, np.mean(x, axis=0))
+    clf = SVR(gamma='scale', kernel='linear')
     clf.fit(x, y)
 
     return clf.predict(x_test)
@@ -112,15 +126,28 @@ def predict():
     x1, x2, y = get_train_data()
     x1_test, x2_test = get_test_data()
 
-    y_1 = predict_with_numerical(x1, y, x1_test)
+    y_1 = predict_with_numerical(x1, y, x1)
+    
+    print(rmsle(y, y_1))
 
     bin_size = 1000
-    m = get_bayes_model(x2, y, bin_size)
+    # m = get_bayes_model(x2, y, bin_size)
+    # y_2 = predict_with_categorical(m, x2_test, bin_size)
 
-    y_2 = predict_with_categorical(m, x2_test, bin_size)
-
+    # get_submission_file(y_1)
     return y_1
     # return (y_1 + y_2) / 2
+
+
+def get_submission_file(y):
+    df = pd.DataFrame({'Id': range(1461, 2920), 'SalePrice': y})
+    df.to_csv('submit.csv', index=None)
+
+
+def rmsle(y, y_):
+    """ A function to calculate Root Mean Squared Logarithmic Error (RMSLE) """
+    assert len(y) == len(y_)
+    return np.sqrt(np.mean((np.log(1 + y) - np.log(1 + y_))**2))
 
 
 y = predict()

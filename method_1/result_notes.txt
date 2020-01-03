@@ -1,0 +1,1 @@
+- I tried SVR with rbf, poly, sigmoid and linear. The best is linear. Linear gives some negative results.
