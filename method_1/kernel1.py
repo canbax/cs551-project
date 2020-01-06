@@ -1,6 +1,7 @@
 # thanks to https://www.kaggle.com/jesucristo/1-house-prices-solution-top-1
 import numpy as np  # linear algebra
 import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
+import time
 
 from datetime import datetime
 from scipy.stats import skew  # for some statistics
@@ -30,7 +31,6 @@ import os
 train = pd.read_csv('data/train.csv')
 test = pd.read_csv('data/test.csv')
 print('Data is loaded!')
-
 
 train_ID = train['Id']
 test_ID = test['Id']
@@ -114,58 +114,58 @@ for i in skew_index:
 
 features = features.drop(['Utilities', 'Street', 'PoolQC', ], axis=1)
 
-features['YrBltAndRemod'] = features['YearBuilt']+features['YearRemodAdd']
-features['TotalSF'] = features['TotalBsmtSF'] + \
-    features['1stFlrSF'] + features['2ndFlrSF']
+# # start generate features from existing features
+# features['YrBltAndRemod'] = features['YearBuilt']+features['YearRemodAdd']
+# features['TotalSF'] = features['TotalBsmtSF'] + \
+#     features['1stFlrSF'] + features['2ndFlrSF']
 
-features['Total_sqr_footage'] = (features['BsmtFinSF1'] + features['BsmtFinSF2'] +
-                                 features['1stFlrSF'] + features['2ndFlrSF'])
+# features['Total_sqr_footage'] = (features['BsmtFinSF1'] + features['BsmtFinSF2'] +
+#                                  features['1stFlrSF'] + features['2ndFlrSF'])
 
-features['Total_Bathrooms'] = (features['FullBath'] + (0.5 * features['HalfBath']) +
-                               features['BsmtFullBath'] + (0.5 * features['BsmtHalfBath']))
+# features['Total_Bathrooms'] = (features['FullBath'] + (0.5 * features['HalfBath']) +
+#                                features['BsmtFullBath'] + (0.5 * features['BsmtHalfBath']))
 
-features['Total_porch_sf'] = (features['OpenPorchSF'] + features['3SsnPorch'] +
-                              features['EnclosedPorch'] + features['ScreenPorch'] +
-                              features['WoodDeckSF'])
+# features['Total_porch_sf'] = (features['OpenPorchSF'] + features['3SsnPorch'] +
+#                               features['EnclosedPorch'] + features['ScreenPorch'] +
+#                               features['WoodDeckSF'])
 
-# simplified features
-features['haspool'] = features['PoolArea'].apply(lambda x: 1 if x > 0 else 0)
-features['has2ndfloor'] = features['2ndFlrSF'].apply(
-    lambda x: 1 if x > 0 else 0)
-features['hasgarage'] = features['GarageArea'].apply(
-    lambda x: 1 if x > 0 else 0)
-features['hasbsmt'] = features['TotalBsmtSF'].apply(
-    lambda x: 1 if x > 0 else 0)
-features['hasfireplace'] = features['Fireplaces'].apply(
-    lambda x: 1 if x > 0 else 0)
+# # simplified features
+# features['haspool'] = features['PoolArea'].apply(lambda x: 1 if x > 0 else 0)
+# features['has2ndfloor'] = features['2ndFlrSF'].apply(
+#     lambda x: 1 if x > 0 else 0)
+# features['hasgarage'] = features['GarageArea'].apply(
+#     lambda x: 1 if x > 0 else 0)
+# features['hasbsmt'] = features['TotalBsmtSF'].apply(
+#     lambda x: 1 if x > 0 else 0)
+# features['hasfireplace'] = features['Fireplaces'].apply(
+#     lambda x: 1 if x > 0 else 0)
 
-print(features.shape)
-final_features = pd.get_dummies(features).reset_index(drop=True)
-print(final_features.shape)
+# # end generate features from existing features
+
+# final_features = pd.get_dummies(features).reset_index(drop=True)
+final_features = features.select_dtypes(exclude=['object'])
 
 X = final_features.iloc[:len(y), :]
 X_sub = final_features.iloc[len(X):, :]
-
-print('X', X.shape, 'y', y.shape, 'X_sub', X_sub.shape)
 
 outliers = [30, 88, 462, 631, 1322]
 X = X.drop(X.index[outliers])
 y = y.drop(y.index[outliers])
 
-overfit = []
+# some dummy features might occur like an ID which is unique for each sample
+# delete them if they exists
+too_unique_features = []
 for i in X.columns:
     counts = X[i].value_counts()
     zeros = counts.iloc[0]
     if zeros / len(X) * 100 > 99.94:
-        overfit.append(i)
+        too_unique_features.append(i)
 
-overfit = list(overfit)
-overfit.append('MSZoning_C (all)')
+too_unique_features = list(too_unique_features)
+# too_unique_features.append('MSZoning_C (all)')
 
-X = X.drop(overfit, axis=1).copy()
-X_sub = X_sub.drop(overfit, axis=1).copy()
-
-print('X', X.shape, 'y', y.shape, 'X_sub', X_sub.shape)
+X = X.drop(too_unique_features, axis=1).copy()
+X_sub = X_sub.drop(too_unique_features, axis=1).copy()
 
 # ################## ML ########################################
 print('START ML', datetime.now(), )
@@ -173,13 +173,8 @@ print('START ML', datetime.now(), )
 kfolds = KFold(n_splits=10, shuffle=True, random_state=42)
 
 
-# rmsle
-def rmsle(y, y_pred):
-    return np.sqrt(mean_squared_error(y, y_pred))
-
-
 # build our model scoring function
-def cv_rmse(model, X=X):
+def cv_rmsle(model, X=X):
     rmsle = np.sqrt(-cross_val_score(model, X, y,
                                      scoring='neg_mean_squared_log_error',
                                      cv=kfolds))
@@ -247,30 +242,31 @@ stack_gen = StackingCVRegressor(regressors=(ridge, lasso, elasticnet,
 
 print('TEST score on CV')
 
-# score = cv_rmse(ridge)
+# score = cv_rmsle(ridge)
 # print('Kernel Ridge score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 
-# score = cv_rmse(lasso)
+# score = cv_rmsle(lasso)
 # print('Lasso score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 
-# score = cv_rmse(elasticnet)
+# score = cv_rmsle(elasticnet)
 # print('ElasticNet score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 
-score = cv_rmse(svr)
+start_time = time.time()
+score = cv_rmsle(svr)
 print('SVR rmsle: ', score.mean(), ' std: ', score.std())
-
-# score = cv_rmse(lightgbm)
+print(time.time() - start_time, ' passed ')
+# score = cv_rmsle(lightgbm)
 # print('Lightgbm score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 
-# score = cv_rmse(gbr)
+# score = cv_rmsle(gbr)
 # print('GradientBoosting score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 
-# score = cv_rmse(xgboost)
+# score = cv_rmsle(xgboost)
 # print('Xgboost score: {:.4f} ({:.4f})\n'.format(
 #     score.mean(), score.std()), datetime.now(), )
 

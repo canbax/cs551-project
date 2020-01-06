@@ -2,3 +2,6 @@
 - equal weighted average of with maximum bayes with SVR gives worse then only SVR
 - weighted average of with maximum bayes with SVR gives better then only SVR with coeffients 0.08 and 0.92
 - set bayes extimation as weighted average not maximum gives better error but together with SVR no improvement
+- using dummy variables for categorical causes overfitting/unstability cuz std increases
+    - on kernel 1 with dummies (categorical to numeric) rmsle: 0.00798 with std:0.0010
+    - on kernel 1 without dummies rmsle: 0.00897 with std:0.00087
