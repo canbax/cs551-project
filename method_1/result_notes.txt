@@ -1,3 +1,4 @@
 - I tried SVR with rbf, poly, sigmoid and linear. The best is linear. Linear gives some negative results.
 - equal weighted average of with maximum bayes with SVR gives worse then only SVR
-- weighted average of with maximum bayes with SVR gives better then only SVR
+- weighted average of with maximum bayes with SVR gives better then only SVR with coeffients 0.08 and 0.92
+- set bayes extimation as weighted average not maximum gives better error but together with SVR no improvement

@@ -8,7 +8,7 @@ from scipy import stats
 import warnings
 import time
 from sklearn.svm import SVR
-
+from sklearn.model_selection import cross_val_score
 
 def get_train_data():
     """ return numerical and categorical data respectively """
@@ -27,12 +27,12 @@ def get_train_data():
 
     # scale to [0,1] range
     # x1 = MinMaxScaler(feature_range=(0, 1), copy=False).fit_transform(x1)
-        
+
     # mean 0 variance 1
     # x1 = StandardScaler(copy=False).fit_transform(x1)
-    
+
     # x1 = RobustScaler().fit_transform(x1)
-    
+
     # x1 = np.log(x1 + 1)
 
     return x1, x2, y
@@ -50,7 +50,7 @@ def get_test_data():
 
     scaler = MinMaxScaler(feature_range=(0, 1), copy=False)
     scaler.fit_transform(x1)
-    
+
     return x1.to_numpy(), x2.to_numpy()
 
 
@@ -94,7 +94,9 @@ def predict_with_categorical(model, x, bin_size):
         for j in range(n):
             d = model[j][curr[j]]
             # select the most frequent label as label
-            selected_label = max(d, key=lambda key: d[key])
+            # selected_label = max(d, key=lambda key: d[key])
+            # get weighted average of results (weights are already normalized)
+            selected_label = sum([x * d[x] for x in d])
             y_[i] = y_[i] + selected_label
         # find the average value
         y_[i] = y_[i] / n
@@ -118,7 +120,7 @@ def predict_with_numerical(x, y, x_test):
     x_test = replace_nan2mean(x_test, np.mean(x, axis=0))
     clf = SVR(gamma='scale', kernel='linear')
     clf.fit(x, y)
-
+    scores = cross_val_score(clf, x_test, y, cv=5)
     return clf.predict(x_test)
 
 
@@ -128,15 +130,15 @@ def predict():
 
     t = time.time()
     y_1 = predict_with_numerical(x1, y, x1)
-    
-    
+
     bin_size = 1000
     m = get_bayes_model(x2, y, bin_size)
     y_2 = predict_with_categorical(m, x2, bin_size)
 
     print(rmsle(y, y_1))
     print(rmsle(y, y_2))
-    print(rmsle(y, y_1 * 0.8 + y_2 * 0.2))
+    a = 0.08
+    print(rmsle(y, y_1 * (1 - a) + y_2 * a))
 
     # get_submission_file(y_1)
     print(str(time.time() - t) + ' seconds passed')
