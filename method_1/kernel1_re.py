@@ -72,7 +72,42 @@ def fill_missing_values(x):
     return x
 
 
-def transform_features(isConvert2Numeric=True):
+def fix_skewed(x, numeric_dtypes):
+    skew_features = x.select_dtypes(numeric_dtypes).apply(
+        lambda x: skew(x)).sort_values(ascending=False)
+
+    high_skew = skew_features[skew_features > 0.5]
+    skew_index = high_skew.index
+
+    for i in skew_index:
+        x[i] = boxcox1p(x[i], boxcox_normmax(x[i] + 1))
+    
+    return x
+
+
+def drop_too_uniques(x, x_test, is_2_numeric):
+    # some dummy features might occur like an ID which is unique for each sample
+    # delete them if they exists
+    too_unique_features = []
+    for i in x.columns:
+        counts = x[i].value_counts()
+        zeros = counts.iloc[0]
+        if zeros / len(x) * 100 > 99.94:
+            too_unique_features.append(i)
+
+    too_unique_features = list(too_unique_features)
+    # if we convert such a feature occurs
+    if is_2_numeric:
+        too_unique_features.append('MSZoning_C (all)')
+    
+    x = x.drop(too_unique_features, axis=1).copy()
+    x_test = x_test.drop(too_unique_features, axis=1).copy()
+    
+    return x, x_test
+
+
+def transform_features(is_delete_outlier_from_train=True, is_log_transform_y=True, is_2_numeric=True, is_2_categorical=True,
+                       is_fill_missing=True, is_fill_missing_numeric=True, is_fix_skewed=True, is_drop_too_uniq=True):
     train = pd.read_csv('data/train.csv')
     test = pd.read_csv('data/test.csv')
 
@@ -81,10 +116,12 @@ def transform_features(isConvert2Numeric=True):
     test.drop(['Id'], axis=1, inplace=True)
 
     # Deleting outliers
-    train = delete_outliers_from_train(train)
+    if is_delete_outlier_from_train:
+        train = delete_outliers_from_train(train)
 
     # log transform to see more normal distribution
-    train['SalePrice'] = np.log1p(train['SalePrice'])
+    if is_log_transform_y:
+        train['SalePrice'] = np.log1p(train['SalePrice'])
     y = train.SalePrice.reset_index(drop=True)
     train_features = train.drop(['SalePrice'], axis=1)
     test_features = test
@@ -93,30 +130,25 @@ def transform_features(isConvert2Numeric=True):
                          ).reset_index(drop=True)
 
     # some numeric features are actually categorical features
-    features = convert2_categorical(
-        features, ['MSSubClass', 'YrSold', 'MoSold'])
+    if is_2_categorical:
+        features = convert2_categorical(
+            features, ['MSSubClass', 'YrSold', 'MoSold'])
 
     # fill missing values
-    features = fill_missing_values(features)
+    if is_fill_missing:
+        features = fill_missing_values(features)
 
     # fill missing numerics
     numeric_dtypes = ['int16', 'int32', 'int64',
                       'float16', 'float32', 'float64']
-    features.update(features.select_dtypes(numeric_dtypes).fillna(0))
+    if is_fill_missing_numeric:
+        features.update(features.select_dtypes(numeric_dtypes).fillna(0))
 
-    skew_features = features.select_dtypes(numeric_dtypes).apply(
-        lambda x: skew(x)).sort_values(ascending=False)
-
-    high_skew = skew_features[skew_features > 0.5]
-    skew_index = high_skew.index
-
-    for i in skew_index:
-        features[i] = boxcox1p(features[i], boxcox_normmax(features[i] + 1))
-
-    features = features.drop(['Utilities', 'Street', 'PoolQC', ], axis=1)
-
+    if is_fix_skewed:
+        fix_skewed(features, numeric_dtypes)
+    
     final_features = features
-    if isConvert2Numeric:
+    if is_2_numeric:
         final_features = pd.get_dummies(features).reset_index(drop=True)
 
     X = final_features.iloc[:len(y), :]
@@ -126,22 +158,9 @@ def transform_features(isConvert2Numeric=True):
     X = X.drop(X.index[outliers])
     y = y.drop(y.index[outliers])
 
-    # some dummy features might occur like an ID which is unique for each sample
-    # delete them if they exists
-    too_unique_features = []
-    for i in X.columns:
-        counts = X[i].value_counts()
-        zeros = counts.iloc[0]
-        if zeros / len(X) * 100 > 99.94:
-            too_unique_features.append(i)
-
-    too_unique_features = list(too_unique_features)
-    # if we convert such a feature occurs
-    if isConvert2Numeric:
-        too_unique_features.append('MSZoning_C (all)')
-
-    X = X.drop(too_unique_features, axis=1).copy()
-    X_test = X_test.drop(too_unique_features, axis=1).copy()
+    if is_drop_too_uniq:
+        X, X_test = drop_too_uniques(X, X_test, is_2_numeric)
+    
     return X, X_test, y
 
 
