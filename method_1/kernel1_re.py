@@ -81,7 +81,7 @@ def fix_skewed(x, numeric_dtypes):
 
     for i in skew_index:
         x[i] = boxcox1p(x[i], boxcox_normmax(x[i] + 1))
-    
+
     return x
 
 
@@ -99,10 +99,10 @@ def drop_too_uniques(x, x_test, is_2_numeric):
     # if we convert such a feature occurs
     if is_2_numeric:
         too_unique_features.append('MSZoning_C (all)')
-    
+
     x = x.drop(too_unique_features, axis=1).copy()
     x_test = x_test.drop(too_unique_features, axis=1).copy()
-    
+
     return x, x_test
 
 
@@ -146,7 +146,7 @@ def transform_features(is_delete_outlier_from_train=True, is_log_transform_y=Tru
 
     if is_fix_skewed:
         fix_skewed(features, numeric_dtypes)
-    
+
     final_features = features
     if is_2_numeric:
         final_features = pd.get_dummies(features).reset_index(drop=True)
@@ -160,19 +160,34 @@ def transform_features(is_delete_outlier_from_train=True, is_log_transform_y=Tru
 
     if is_drop_too_uniq:
         X, X_test = drop_too_uniques(X, X_test, is_2_numeric)
-    
-    return X, X_test, y
+
+    return np.array(X), np.array(X_test), np.array(y)
 
 
-X, _, y = transform_features()
-kfolds = KFold(n_splits=10, shuffle=True, random_state=42)
+def rmsle(y, y_, is_logged_y=True):
+    """ A function to calculate Root Mean Squared Logarithmic Error (RMSLE) """
+    assert len(y) == len(y_)
+    if is_logged_y:
+        return np.sqrt( np.mean((y - y_)**2) )
+    return np.sqrt(np.mean((np.log(1 + y) - np.log(1 + y_))**2))
 
 
-def cross_val_rmsle(model, X=X):
-    rmsle = np.sqrt(-cross_val_score(model, X, y,
-                                     scoring='neg_mean_squared_log_error',
-                                     cv=kfolds))
-    return rmsle
+def cross_val_rmsle(model, X, is_logged_y=True):
+    X = RobustScaler().fit_transform(X)
+
+    kf = KFold(n_splits=10, shuffle=True)
+
+    scores = np.ones(10)
+    cnt = 0
+    for train_index, test_index in kf.split(X):
+        X_train, X_test = X[train_index], X[test_index]
+        y_train, y_test = y[train_index], y[test_index]
+        model.fit(X_train, y_train)
+        y_ = model.predict(X_test)
+        scores[cnt] = rmsle(y_test, y_, is_logged_y)
+        cnt = cnt + 1
+
+    return scores
 
 
 svr = make_pipeline(RobustScaler(),
@@ -201,7 +216,11 @@ stack_gen = StackingCVRegressor(regressors=(gbr, svr),
 
 print('TEST score on CV')
 
+is_log_y = False
+X, _, y = transform_features(is_log_transform_y=is_log_y)
+kfolds = KFold(n_splits=10, shuffle=True, random_state=42)
+
 start_time = time.time()
-score = cross_val_rmsle(svr)
+score = cross_val_rmsle(svr, X, is_log_y)
 print('SVR rmsle: ', score.mean(), ' std: ', score.std())
 print(time.time() - start_time, ' passed ')
