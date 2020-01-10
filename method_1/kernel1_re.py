@@ -29,7 +29,50 @@ from sklearn.preprocessing import StandardScaler
 import os
 
 
-def trainsform_features(isConvert2Numeric=True):
+def delete_outliers_from_train(train):
+    train = train[train.GrLivArea < 4500]
+    train.reset_index(drop=True, inplace=True)
+    return train
+
+
+def convert2_categorical(x, cols):
+    for col in cols:
+        x[col] = x[col].astype(str)
+    return x
+
+
+def fill_missing_values(x):
+    x['Functional'] = x['Functional'].fillna('Typ')
+    x['Electrical'] = x['Electrical'].fillna('SBrkr')
+    x['KitchenQual'] = x['KitchenQual'].fillna('TA')
+    x['Exterior1st'] = x['Exterior1st'].fillna(
+        x['Exterior1st'].mode()[0])
+    x['Exterior2nd'] = x['Exterior2nd'].fillna(
+        x['Exterior2nd'].mode()[0])
+    x['SaleType'] = x['SaleType'].fillna(
+        x['SaleType'].mode()[0])
+
+    x['PoolQC'] = x['PoolQC'].fillna('None')
+
+    for col in ('GarageYrBlt', 'GarageArea', 'GarageCars'):
+        x[col] = x[col].fillna(0)
+    for col in ['GarageType', 'GarageFinish', 'GarageQual', 'GarageCond']:
+        x[col] = x[col].fillna('None')
+    for col in ('BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2'):
+        x[col] = x[col].fillna('None')
+
+    x['MSZoning'] = x.groupby(
+        'MSSubClass')['MSZoning'].transform(lambda x: x.fillna(x.mode()[0]))
+
+    x.update(x.select_dtypes(['object']).fillna('None'))
+
+    x['LotFrontage'] = x.groupby(
+        'Neighborhood')['LotFrontage'].transform(lambda x: x.fillna(x.median()))
+
+    return x
+
+
+def transform_features(isConvert2Numeric=True):
     train = pd.read_csv('data/train.csv')
     test = pd.read_csv('data/test.csv')
 
@@ -38,8 +81,7 @@ def trainsform_features(isConvert2Numeric=True):
     test.drop(['Id'], axis=1, inplace=True)
 
     # Deleting outliers
-    train = train[train.GrLivArea < 4500]
-    train.reset_index(drop=True, inplace=True)
+    train = delete_outliers_from_train(train)
 
     # log transform to see more normal distribution
     train['SalePrice'] = np.log1p(train['SalePrice'])
@@ -51,61 +93,18 @@ def trainsform_features(isConvert2Numeric=True):
                          ).reset_index(drop=True)
 
     # some numeric features are actually categorical features
-    features['MSSubClass'] = features['MSSubClass'].astype(str)
-    features['YrSold'] = features['YrSold'].astype(str)
-    features['MoSold'] = features['MoSold'].astype(str)
+    features = convert2_categorical(
+        features, ['MSSubClass', 'YrSold', 'MoSold'])
 
-    # fill default values for some non-existing
-    features['Functional'] = features['Functional'].fillna('Typ')
-    features['Electrical'] = features['Electrical'].fillna('SBrkr')
-    features['KitchenQual'] = features['KitchenQual'].fillna('TA')
-    features['Exterior1st'] = features['Exterior1st'].fillna(
-        features['Exterior1st'].mode()[0])
-    features['Exterior2nd'] = features['Exterior2nd'].fillna(
-        features['Exterior2nd'].mode()[0])
-    features['SaleType'] = features['SaleType'].fillna(
-        features['SaleType'].mode()[0])
+    # fill missing values
+    features = fill_missing_values(features)
 
-    features['PoolQC'] = features['PoolQC'].fillna('None')
-
-    for col in ('GarageYrBlt', 'GarageArea', 'GarageCars'):
-        features[col] = features[col].fillna(0)
-    for col in ['GarageType', 'GarageFinish', 'GarageQual', 'GarageCond']:
-        features[col] = features[col].fillna('None')
-    for col in ('BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2'):
-        features[col] = features[col].fillna('None')
-
-    features['MSZoning'] = features.groupby(
-        'MSSubClass')['MSZoning'].transform(lambda x: x.fillna(x.mode()[0]))
-
-    objects = []
-    for i in features.columns:
-        if features[i].dtype == object:
-            objects.append(i)
-
-    features.update(features[objects].fillna('None'))
-
-    features['LotFrontage'] = features.groupby(
-        'Neighborhood')['LotFrontage'].transform(lambda x: x.fillna(x.median()))
-
-    # Filling in the rest of the NA's
-
+    # fill missing numerics
     numeric_dtypes = ['int16', 'int32', 'int64',
                       'float16', 'float32', 'float64']
-    numerics = []
-    for i in features.columns:
-        if features[i].dtype in numeric_dtypes:
-            numerics.append(i)
-    features.update(features[numerics].fillna(0))
+    features.update(features.select_dtypes(numeric_dtypes).fillna(0))
 
-    numeric_dtypes = ['int16', 'int32', 'int64',
-                      'float16', 'float32', 'float64']
-    numerics2 = []
-    for i in features.columns:
-        if features[i].dtype in numeric_dtypes:
-            numerics2.append(i)
-
-    skew_features = features[numerics2].apply(
+    skew_features = features.select_dtypes(numeric_dtypes).apply(
         lambda x: skew(x)).sort_values(ascending=False)
 
     high_skew = skew_features[skew_features > 0.5]
@@ -146,13 +145,11 @@ def trainsform_features(isConvert2Numeric=True):
     return X, X_test, y
 
 
-X, _, y = trainsform_features()
+X, _, y = transform_features()
 kfolds = KFold(n_splits=10, shuffle=True, random_state=42)
 
-# build our model scoring function
 
-
-def cv_rmsle(model, X=X):
+def cross_val_rmsle(model, X=X):
     rmsle = np.sqrt(-cross_val_score(model, X, y,
                                      scoring='neg_mean_squared_log_error',
                                      cv=kfolds))
@@ -186,6 +183,6 @@ stack_gen = StackingCVRegressor(regressors=(gbr, svr),
 print('TEST score on CV')
 
 start_time = time.time()
-score = cv_rmsle(svr)
+score = cross_val_rmsle(svr)
 print('SVR rmsle: ', score.mean(), ' std: ', score.std())
 print(time.time() - start_time, ' passed ')
