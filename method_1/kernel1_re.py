@@ -78,7 +78,6 @@ def fix_skewed(x, numeric_dtypes):
 
     high_skew = skew_features[skew_features > 0.5]
     skew_index = high_skew.index
-
     for i in skew_index:
         x[i] = boxcox1p(x[i], boxcox_normmax(x[i] + 1))
 
@@ -141,9 +140,10 @@ def transform_features(is_delete_outlier_from_train=True, is_log_transform_y=Tru
     # fill missing numerics
     numeric_dtypes = ['int16', 'int32', 'int64',
                       'float16', 'float32', 'float64']
+    features.update(features.select_dtypes(numeric_dtypes).fillna(0))
+    
     if is_fill_missing_numeric:
-        features.update(features.select_dtypes(numeric_dtypes).fillna(0))
-
+        features.update(features.select_dtypes(numeric_dtypes).fillna(features.mean()))
     if is_fix_skewed:
         fix_skewed(features, numeric_dtypes)
 
@@ -161,37 +161,126 @@ def transform_features(is_delete_outlier_from_train=True, is_log_transform_y=Tru
     if is_drop_too_uniq:
         X, X_test = drop_too_uniques(X, X_test, is_2_numeric)
 
-    return np.array(X), np.array(X_test), np.array(y)
+    return X, X_test, y
 
 
-def rmsle(y, y_, is_logged_y=True):
+def rmsle(y, y_):
     """ A function to calculate Root Mean Squared Logarithmic Error (RMSLE) """
     assert len(y) == len(y_)
-    if is_logged_y:
-        return np.sqrt( np.mean((y - y_)**2) )
     return np.sqrt(np.mean((np.log(1 + y) - np.log(1 + y_))**2))
 
 
-def cross_val_rmsle(model, X, is_logged_y=True):
+def cross_val_rmsle(model, X, y, is_logged_y=True, x2=[], y2=[], is_logged_y2=False):
+    X = np.array(X)
+    y = np.array(y)
+
+    if len(x2) > 0:
+        x2 = np.array(x2)
+        y2 = np.array(y2)
+
     X = RobustScaler().fit_transform(X)
+    num_split = 10
+    kf = KFold(n_splits=num_split, shuffle=True)
 
-    kf = KFold(n_splits=10, shuffle=True)
-
-    scores = np.ones(10)
+    num_weight = 10
+    scores = np.ones((num_split, ))
     cnt = 0
     for train_index, test_index in kf.split(X):
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = y[train_index], y[test_index]
-        model.fit(X_train, y_train)
-        y_ = model.predict(X_test)
-        scores[cnt] = rmsle(y_test, y_, is_logged_y)
-        cnt = cnt + 1
+        model.fit(X[train_index], y[train_index])
+        y_ = model.predict(X[test_index])
+        if is_logged_y:
+            y_ = np.exp(y_) - 1
 
+        y_2 = 0
+        if len(x2) > 0:
+            y_2 = run_model2(x2[train_index], y2[train_index], x2[test_index])
+            if is_logged_y2:
+                y_2 = np.exp(y_2) - 1
+        weight = 0
+        y_comb = y_ * (1-weight) + weight * y_2
+        # th = 0
+        # cnt2 = 0
+        # while cnt2 < num_weight:
+        #     y_comb = y_ * (1-th) + th * y_2
+        #     if is_log_y:
+        #         scores[cnt, cnt2] = rmsle(np.exp(y[test_index]) - 1, y_comb)
+        #     else:
+        #         scores[cnt, cnt2] = rmsle(y[test_index], y_comb)
+        #     th = th + .001
+        #     cnt2 = cnt2 + 1
+        if is_log_y:
+            scores[cnt] = rmsle(np.exp(y[test_index]) - 1, y_comb)
+        else:
+            scores[cnt] = rmsle(y[test_index], y_comb)
+        cnt = cnt + 1
+    
+    # for i in range(num_weight):
+    #     print(scores[:, i].mean(), ' - ', scores[:, i].std(), ' weight: ', i)
+    
     return scores
 
 
+def predict_with_categorical(model, x, bin_size, y_train_mean):
+    m, n = x.shape
+    y_ = np.zeros((m, 1), dtype=np.int32)
+    for i in range(m):
+        curr = x[i, :]
+        for j in range(n):
+            if curr[j] not in model[j]:
+                y_[i] = y_train_mean
+                continue
+            d = model[j][curr[j]]
+            # select the most frequent label as label
+            # selected_label = max(d, key=lambda key: d[key])
+            # get weighted average of results (weights are already normalized)
+            selected_label = sum([x * d[x] for x in d])
+            y_[i] = y_[i] + selected_label
+        # find the average value
+        y_[i] = y_[i] / n
+    return y_ * bin_size
+
+
+def get_bayes_model(x, y, bin_size: int):
+    """ counts the occurence of each label for each feature and for each value """
+
+    m, n = x.shape
+    # for each feature, keep a dictionary for frequency of values
+    # model is an array of dictionary of dictionary which simply indexes feature index, feature value and label frequency
+    model = [{}] * n
+
+    for i in range(m):
+        label = round(y[i] / bin_size)
+        for j in range(n):
+            val = x[i][j]
+            if val in model[j]:
+                if label in model[j][val]:
+                    model[j][val][label] = model[j][val][label] + 1
+                else:
+                    model[j][val][label] = 1
+            else:
+                model[j][val] = {label: 1}
+
+    # normalize counts of labels to [0,1]
+    for feature in model:
+        for val in feature:
+            s = 0
+            for freq in feature[val]:
+                s = s + feature[val][freq]
+            for freq in feature[val]:
+                feature[val][freq] = feature[val][freq] / s
+
+    return model
+
+
+def run_model2(x_train, y_train, x_test):
+    bin_size = 1000
+    m = get_bayes_model(x_train, y_train, bin_size)
+    y_train_mean = np.mean(y_train)
+    return predict_with_categorical(m, x_test, bin_size, y_train_mean)
+
+
 svr = make_pipeline(RobustScaler(),
-                    SVR(C=20, epsilon=0.008, gamma=0.0003,))
+                    SVR(gamma='auto'))
 
 
 gbr = GradientBoostingRegressor(n_estimators=3000, learning_rate=0.05,
@@ -216,11 +305,17 @@ stack_gen = StackingCVRegressor(regressors=(gbr, svr),
 
 print('TEST score on CV')
 
-is_log_y = False
-X, _, y = transform_features(is_log_transform_y=is_log_y)
-kfolds = KFold(n_splits=10, shuffle=True, random_state=42)
+is_log_y, is_2_numeric, is_del_outlier, is_2_categorical, is_fill_missing_numeric, is_fill_missing = True, True, True, True, True, False
+X, _, y = transform_features(is_log_transform_y=is_log_y, is_delete_outlier_from_train=is_del_outlier, is_2_numeric=is_2_numeric, 
+                             is_2_categorical=is_2_categorical, is_fill_missing_numeric=is_fill_missing_numeric, is_fill_missing=is_fill_missing, is_fix_skewed=False, is_drop_too_uniq=False)
+if not is_2_numeric:
+    X = X.select_dtypes(exclude=['object'])
+is_log_y2 = False
+x2, _, y2 = transform_features(
+    is_2_numeric=False, is_log_transform_y=is_log_y2)
+x2 = x2.select_dtypes(['object'])
 
 start_time = time.time()
-score = cross_val_rmsle(svr, X, is_log_y)
+score = cross_val_rmsle(svr, X, y, is_log_y)
 print('SVR rmsle: ', score.mean(), ' std: ', score.std())
 print(time.time() - start_time, ' passed ')

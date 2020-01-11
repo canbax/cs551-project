@@ -137,7 +137,7 @@ def predict():
 
     print(rmsle(y, y_1))
     print(rmsle(y, y_2))
-    a = 0.08
+    a = 1
     print(rmsle(y, y_1 * (1 - a) + y_2 * a))
 
     # get_submission_file(y_1)
