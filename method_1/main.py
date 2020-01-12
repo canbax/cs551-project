@@ -9,6 +9,7 @@ import warnings
 import time
 from sklearn.svm import SVR
 from sklearn.model_selection import cross_val_score
+from view_dict import tk_tree_view
 
 def get_train_data():
     """ return numerical and categorical data respectively """
@@ -129,10 +130,13 @@ def predict():
     x1_test, x2_test = get_test_data()
 
     t = time.time()
-    y_1 = predict_with_numerical(x1, y, x1)
+    # y_1 = predict_with_numerical(x1, y, x1)
 
     bin_size = 1000
     m = get_bayes_model(x2, y, bin_size)
+    
+    tk_tree_view(m[0])
+    
     y_2 = predict_with_categorical(m, x2, bin_size)
 
     print(rmsle(y, y_1))
@@ -161,3 +165,6 @@ y = predict()
 
 # print(y_)
 # print(np.unique(y_))
+
+
+
